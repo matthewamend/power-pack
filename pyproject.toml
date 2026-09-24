@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib>=3.9.4",
     "nidaqmx==1.0.1",
     "numpy>=2.0.2",
+    "openai>=2.48.0",
     "pandas>=2.3.3",
 ]
 

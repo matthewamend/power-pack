@@ -171,8 +171,28 @@ class RunReader:
         vertical_asymptotes: list[float] | None = None,
         pattern: int = 2,
     ):
+        total: np.ndarray | None = None
+
         for component, obj in self._component_groups():
-            self.plot(component, file_prefix, power_cap, vertical_asymptotes, pattern)
+            arr = self.dataframe(component).sum(axis=1).to_numpy()
+
+            self._plot_array(
+                component,
+                arr,
+                file_prefix,
+                power_cap,
+                vertical_asymptotes,
+                pattern,
+            )
+
+            if total is None:
+                total = np.zeros_like(arr)
+
+            total += arr
+
+        self._plot_array(
+            "total", total, file_prefix, power_cap, vertical_asymptotes, pattern
+        )
 
     def plot(
         self,
@@ -182,21 +202,33 @@ class RunReader:
         vertical_asymptotes: list[float] | None = None,
         pattern: int = 2,
     ):
+        self._plot_array(
+            component,
+            self.dataframe(component).sum(axis=1).to_numpy(),
+        )
 
-        voltage = self.dataframe(component).sum(axis=1).values
+    def _plot_array(
+        self,
+        name: str,
+        wattage: np.ndarray,
+        file_prefix: str = "",
+        power_cap: float | None = None,
+        vertical_asymptotes: list[float] | None = None,
+        pattern: int = 2,
+    ):
 
-        times = np.arange(0, len(voltage)) / self.sample_rate
+        times = np.arange(0, len(wattage)) / self.sample_rate
 
         window_size = 100
 
-        voltage_windows = np.lib.stride_tricks.sliding_window_view(
-            voltage, window_shape=window_size
+        wattage_windows = np.lib.stride_tricks.sliding_window_view(
+            wattage, window_shape=window_size
         )
         time_windows = np.lib.stride_tricks.sliding_window_view(
             times, window_shape=window_size
         )
 
-        voltage_medians = np.median(voltage_windows, axis=1)
+        wattage_medians = np.median(wattage_windows, axis=1)
 
         # Use the last time in each window for referencing
         reference_times = time_windows[:, -1]
@@ -208,8 +240,8 @@ class RunReader:
 
         plt.plot(
             reference_times,
-            voltage_medians,
-            label=f"PowerPack Measurements: {component}",
+            wattage_medians,
+            label=f"PowerPack Measurements: {name}",
             color="red",
         )
 
@@ -217,10 +249,10 @@ class RunReader:
         plt.ylabel("Watts")
         if power_cap is not None:
             plt.title(
-                f"{component.title()} Power Consumption Graph (Power Cap = {power_cap} W)"
+                f"{name.title()} Power Consumption Graph (Power Cap = {power_cap} W)"
             )
         else:
-            plt.title(f"{component.title()} Power Consumption Graph")
+            plt.title(f"{name.title()} Power Consumption Graph")
 
         plt.legend()
         plt.grid(True)
@@ -244,7 +276,7 @@ class RunReader:
                     label=f"Start time: {rounded_asymptote:.4f}",
                 )
 
-        plt.savefig(f"{file_prefix}{component}.png")
+        plt.savefig(f"{file_prefix}{name}.png")
         plt.close()
 
     def close(self) -> None:
