@@ -3,29 +3,37 @@ Simple benchmark that does nothing, then slams the CPU, then does nothing. This
 is supposed to simulate a sudden spike.
 """
 
-import sys
+import math
+import time
+
+from power_pack import Acquisition, NIDaqConfig, RunReader
 
 
-def fact(n: int) -> int:
-    sum = 1.0
-    for i in range(n):
-        sum *= n
+def cpu_burn(n: int) -> float:
+    x = math.factorial(n * n)
+    y = math.factorial(n * n * int(math.sqrt(n)))
 
-    return sum
-
-
-def cpu_burn(n: int) -> int:
-    return fact(n * n) * fact(n * n * n) / (n ** (1 / 2))
+    return x * y
 
 
-if len(sys.argv) != 2:
-    print(f"Usage: {sys.argv[0]} factorial", file=sys.stderr)
-    sys.exit(1)
+if __name__ == "__main__":
+    n = 10
 
-try:
-    n = int(sys.argv[1])
-except ValueError:
-    print(f"Error: argument '{sys.argv[1]}' must be an integer")
-    sys.exit(1)
+    config = NIDaqConfig(2000, 1000, "cpu_burn.hdf5")
 
-print(cpu_burn(1000))
+    acq = Acquisition("Example CPU utilization benchmark", config)
+
+    acq.start()
+
+    for i in range(10):
+        for _ in range(1000):
+            cpu_burn(n + i)
+        time.sleep(0.2)
+
+    acq.stop()
+
+    reader = RunReader("cpu_burn.hdf5")
+
+    reader.make_csv_files()
+
+    reader.plot_all()
