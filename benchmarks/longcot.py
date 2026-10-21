@@ -1,7 +1,8 @@
 import time
+import numpy as np
+
 import longcot  #only new implemnetation
 from openai import OpenAI #SENDSTO MODEL
-
 from power_pack import Acquisition, NIDaqConfig, RunReader
 
 API_URL = "http://localhost:8080/v1"
@@ -21,34 +22,51 @@ def main():
     acq = Acquisition("LongCoT Benchmark", config)  #creates the power recorder using those settings
 
     marks = []  # when each question starts, so it shows as a line on the graph
- # STEP 1: start measuring power
+    results = []  # saves each question's info
+
+    # STEP 1: start measuring power
     acq.start()
     start = time.time()
     try:
-       # step 2: wait 5 seconds before so the powerpack can boot
-        time.sleep(5)  # idle baseline
-        for q in questions:
+        # STEP 2: wait 5 seconds to measure idle power
+        time.sleep(5)
 
-          #STEP 3: ask the AI each question
+        # STEP 3: ask the AI each question
+        for q in questions:
             marks.append(time.time() - start)
-            result = client.chat.completions.create( model="",
-              messages=[{"role": "user", "content": q.prompt}], #q sent
+            t_start = time.time()  # question started
+            result = client.chat.completions.create(
+                model="",
+                messages=[{"role": "user", "content": q.prompt}],  # q sent
                 max_tokens=16384,
             )
+            t_end = time.time()  # question finished
             answer = result.choices[0].message.content or ""
             tokens = result.usage.completion_tokens
             try:
-                correct = longcot.verify(q, answer) #is answer right or wrong
+                correct = longcot.verify(q, answer)  # is answer right or wrong
             except Exception:
                 correct = "error"
             print(q.question_id, "tokens:", tokens, "correct:", correct)
+            results.append((q.question_id, tokens, t_start, t_end))
     finally:
-      #STEP 4: stop measuring power 
+        # STEP 4: stop measuring power
         acq.stop()
-#save all data and make graphs.
+
+    # STEP 5: save all data and make graphs
     reader = RunReader("longcot.hdf5")
     reader.make_csv_files("longcot-")
     reader.plot_all("longcot-", vertical_asymptotes=marks)
+
+    # STEP 6: energy used during each question
+    daq_start = float(reader.f.attrs["start_time"])  # when the DAQ started recording
+    total_watts = sum(reader.dataframe(name).sum(axis=1).to_numpy()
+                      for name, _ in reader._component_groups())  # all parts added together
+    times = np.arange(len(total_watts)) / reader.sample_rate  # seconds for each reading
+    for qid, tokens, t_start, t_end in results:
+        during = (times >= t_start - daq_start) & (times <= t_end - daq_start)  # readings during this question
+        energy = total_watts[during].sum() / reader.sample_rate  # watts x seconds = joules
+        print(qid, "energy:", round(energy, 1), "J", "J/token:", round(energy / max(tokens, 1), 3))
 
 
 if __name__ == "__main__":
